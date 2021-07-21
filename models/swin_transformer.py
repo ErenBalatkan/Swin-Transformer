@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.utils.checkpoint as checkpoint
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+from typing import Optional
 
 
 class Mlp(nn.Module):
@@ -30,7 +31,7 @@ class Mlp(nn.Module):
         return x
 
 
-def window_partition(x, window_size):
+def window_partition(x: torch.Tensor, window_size: int):
     """
     Args:
         x: (B, H, W, C)
@@ -45,7 +46,7 @@ def window_partition(x, window_size):
     return windows
 
 
-def window_reverse(windows, window_size, H, W):
+def window_reverse(windows: torch.Tensor, window_size: int, H: int, W: int):
     """
     Args:
         windows: (num_windows*B, window_size, window_size, C)
@@ -110,7 +111,7 @@ class WindowAttention(nn.Module):
         trunc_normal_(self.relative_position_bias_table, std=.02)
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, x, mask=None):
+    def forward(self, x, mask: Optional[torch.Tensor]=None):
         """
         Args:
             x: input features with shape of (num_windows*B, N, C)
@@ -385,12 +386,20 @@ class BasicLayer(nn.Module):
         else:
             self.downsample = None
 
-    def forward(self, x):
+    @torch.jit.ignore()
+    def ckpt_forward(self, x):
         for blk in self.blocks:
             if self.use_checkpoint:
                 x = checkpoint.checkpoint(blk, x)
-            else:
+        return x
+
+    def forward(self, x):
+        if self.use_checkpoint:
+            x = self.ckpt_forward(x)
+        else:
+            for blk in self.blocks:
                 x = blk(x)
+
         if self.downsample is not None:
             x = self.downsample(x)
         return x
@@ -556,10 +565,14 @@ class SwinTransformer(nn.Module):
     def no_weight_decay_keywords(self):
         return {'relative_position_bias_table'}
 
+    @torch.jit.ignore()
+    def forward_ape(self, x):
+        return x + self.absolute_pos_embed
+
     def forward_features(self, x):
         x = self.patch_embed(x)
         if self.ape:
-            x = x + self.absolute_pos_embed
+            self.forward_ape(x)
         x = self.pos_drop(x)
 
         for layer in self.layers:

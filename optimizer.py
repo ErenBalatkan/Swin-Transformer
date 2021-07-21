@@ -22,11 +22,19 @@ def build_optimizer(config, model):
 
     opt_lower = config.TRAIN.OPTIMIZER.NAME.lower()
     optimizer = None
+    type = None
     if opt_lower == 'sgd':
         optimizer = optim.SGD(parameters, momentum=config.TRAIN.OPTIMIZER.MOMENTUM, nesterov=True,
                               lr=config.TRAIN.BASE_LR, weight_decay=config.TRAIN.WEIGHT_DECAY)
+        type = optim.SGD
     elif opt_lower == 'adamw':
         optimizer = optim.AdamW(parameters, eps=config.TRAIN.OPTIMIZER.EPS, betas=config.TRAIN.OPTIMIZER.BETAS,
+                                lr=config.TRAIN.BASE_LR, weight_decay=config.TRAIN.WEIGHT_DECAY)
+        type = optim.AdamW
+
+    if config.TRAIN.OPTIMIZER.SAM:
+        from sam import SAM
+        optimizer = SAM(model.parameters(), type, 0.5, adaptive=True, eps=config.TRAIN.OPTIMIZER.EPS, betas=config.TRAIN.OPTIMIZER.BETAS,
                                 lr=config.TRAIN.BASE_LR, weight_decay=config.TRAIN.WEIGHT_DECAY)
 
     return optimizer

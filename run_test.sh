@@ -1,0 +1,1 @@
+python get_test_preds.py --cfg configs/swin_large_patch4_window7_224.yaml --data-path /Eren/8870443570442BEE/Data/LogMeal/iccv/test/Test_new/ --local_rank 0 --batch-size 128 --resume ckpt_epoch_93.pth --use-checkpoint --eval

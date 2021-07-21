@@ -25,6 +25,7 @@ from lr_scheduler import build_scheduler
 from optimizer import build_optimizer
 from logger import create_logger
 from utils import load_checkpoint, save_checkpoint, get_grad_norm, auto_resume_helper, reduce_tensor
+import wandb
 
 try:
     # noinspection PyUnresolvedReferences
@@ -74,6 +75,9 @@ def parse_option():
 
 
 def main(config):
+    if dist.get_rank() == 0:
+        wandb.init(project=config.WANDB.PROJECT, name=config.TAG, resume=config.WANDB.RESUME)
+
     dataset_train, dataset_val, data_loader_train, data_loader_val, mixup_fn = build_loader(config)
 
     logger.info(f"Creating model:{config.MODEL.TYPE}/{config.MODEL.NAME}")
@@ -83,7 +87,10 @@ def main(config):
 
     optimizer = build_optimizer(config, model)
     if config.AMP_OPT_LEVEL != "O0":
-        model, optimizer = amp.initialize(model, optimizer, opt_level=config.AMP_OPT_LEVEL)
+        if config.TRAIN.OPTIMIZER.SAM:
+            model, optimizer.base_optimizer = amp.initialize(model, optimizer.base_optimizer, opt_level=config.AMP_OPT_LEVEL)
+        else:
+            model, optimizer = amp.initialize(model, optimizer, opt_level=config.AMP_OPT_LEVEL)
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[config.LOCAL_RANK], broadcast_buffers=False)
     model_without_ddp = model.module
 
@@ -119,7 +126,10 @@ def main(config):
 
     if config.MODEL.RESUME:
         max_accuracy = load_checkpoint(config, model_without_ddp, optimizer, lr_scheduler, logger)
-        acc1, acc5, loss = validate(config, data_loader_val, model)
+        if config.MODEL.RESUME_SKIP_EVAL:
+            acc1, acc5, loss, acc_balanced = 0, 0, 0, 0
+        else:
+            acc1, acc5, loss, acc_balanced = validate(config, data_loader_val, model)
         logger.info(f"Accuracy of the network on the {len(dataset_val)} test images: {acc1:.1f}%")
         if config.EVAL_MODE:
             return
@@ -137,10 +147,22 @@ def main(config):
         if dist.get_rank() == 0 and (epoch % config.SAVE_FREQ == 0 or epoch == (config.TRAIN.EPOCHS - 1)):
             save_checkpoint(config, epoch, model_without_ddp, max_accuracy, optimizer, lr_scheduler, logger)
 
-        acc1, acc5, loss = validate(config, data_loader_val, model)
+        acc1, acc5, loss, acc_balanced = validate(config, data_loader_val, model)
         logger.info(f"Accuracy of the network on the {len(dataset_val)} test images: {acc1:.1f}%")
         max_accuracy = max(max_accuracy, acc1)
         logger.info(f'Max accuracy: {max_accuracy:.2f}%')
+
+        num_steps = len(data_loader_train)
+        if dist.get_rank() == 0:
+            wandb.log({
+                "acc1": acc1,
+                "acc5": acc5,
+                "acc_balanced": acc_balanced,
+                "max_acc": max_accuracy,
+                "epoch": epoch + 1,
+                "step": (epoch + 1) * num_steps,
+                "val_loss": loss
+            })
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
@@ -168,15 +190,17 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
         outputs = model(samples)
 
         if config.TRAIN.ACCUMULATION_STEPS > 1:
+            if config.TRAIN.OPTIMIZER.SAM:
+                raise NotImplementedError("SAM does not work with gradient accumulation")
             loss = criterion(outputs, targets)
             loss = loss / config.TRAIN.ACCUMULATION_STEPS
             if config.AMP_OPT_LEVEL != "O0":
-                with amp.scale_loss(loss, optimizer) as scaled_loss:
+                with amp.scale_loss(loss, optimizer if not config.TRAIN.OPTIMIZER.SAM else optimizer.base_optimizer) as scaled_loss:
                     scaled_loss.backward()
                 if config.TRAIN.CLIP_GRAD:
-                    grad_norm = torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), config.TRAIN.CLIP_GRAD)
+                    grad_norm = torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer if not config.TRAIN.OPTIMIZER.SAM else optimizer.base_optimizer), config.TRAIN.CLIP_GRAD)
                 else:
-                    grad_norm = get_grad_norm(amp.master_params(optimizer))
+                    grad_norm = get_grad_norm(amp.master_params(optimizer if not config.TRAIN.OPTIMIZER.SAM else optimizer.base_optimizer))
             else:
                 loss.backward()
                 if config.TRAIN.CLIP_GRAD:
@@ -190,20 +214,43 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
         else:
             loss = criterion(outputs, targets)
             optimizer.zero_grad()
-            if config.AMP_OPT_LEVEL != "O0":
-                with amp.scale_loss(loss, optimizer) as scaled_loss:
-                    scaled_loss.backward()
-                if config.TRAIN.CLIP_GRAD:
-                    grad_norm = torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), config.TRAIN.CLIP_GRAD)
-                else:
-                    grad_norm = get_grad_norm(amp.master_params(optimizer))
-            else:
+
+            if config.TRAIN.OPTIMIZER.SAM:
                 loss.backward()
-                if config.TRAIN.CLIP_GRAD:
-                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.TRAIN.CLIP_GRAD)
+                optimizer.first_step(zero_grad=True)
+                outputs = model(samples)
+                loss = criterion(outputs, targets)
+
+                if config.AMP_OPT_LEVEL != "O0":
+                    with amp.scale_loss(loss, optimizer if not config.TRAIN.OPTIMIZER.SAM else optimizer.base_optimizer) as scaled_loss:
+                        scaled_loss.backward()
+                    if config.TRAIN.CLIP_GRAD:
+                        grad_norm = torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer if not config.TRAIN.OPTIMIZER.SAM else optimizer.base_optimizer), config.TRAIN.CLIP_GRAD)
+                    else:
+                        grad_norm = get_grad_norm(amp.master_params(optimizer if not config.TRAIN.OPTIMIZER.SAM else optimizer.base_optimizer))
                 else:
-                    grad_norm = get_grad_norm(model.parameters())
-            optimizer.step()
+                    loss.backward()
+                    if config.TRAIN.CLIP_GRAD:
+                        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.TRAIN.CLIP_GRAD)
+                    else:
+                        grad_norm = get_grad_norm(model.parameters())
+                optimizer.second_step(zero_grad=True)
+            else:
+                if config.AMP_OPT_LEVEL != "O0":
+                    with amp.scale_loss(loss, optimizer) as scaled_loss:
+                        scaled_loss.backward()
+                    if config.TRAIN.CLIP_GRAD:
+                        grad_norm = torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), config.TRAIN.CLIP_GRAD)
+                    else:
+                        grad_norm = get_grad_norm(amp.master_params(optimizer))
+                else:
+                    loss.backward()
+                    if config.TRAIN.CLIP_GRAD:
+                        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.TRAIN.CLIP_GRAD)
+                    else:
+                        grad_norm = get_grad_norm(model.parameters())
+                optimizer.step()
+
             lr_scheduler.step_update(epoch * num_steps + idx)
 
         torch.cuda.synchronize()
@@ -214,9 +261,18 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
         end = time.time()
 
         if idx % config.PRINT_FREQ == 0:
-            lr = optimizer.param_groups[0]['lr']
+            lr = optimizer.param_groups[0]['lr'] if not config.TRAIN.OPTIMIZER.SAM else optimizer.base_optimizer.param_groups[0]["lr"]
             memory_used = torch.cuda.max_memory_allocated() / (1024.0 * 1024.0)
             etas = batch_time.avg * (num_steps - idx)
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "lr": lr,
+                    "train_loss": loss_meter.avg,
+                    "grad_norm": norm_meter.avg,
+                    "epoch": epoch,
+                    "step": epoch * num_steps + idx
+                })
+
             logger.info(
                 f'Train: [{epoch}/{config.TRAIN.EPOCHS}][{idx}/{num_steps}]\t'
                 f'eta {datetime.timedelta(seconds=int(etas))} lr {lr:.6f}\t'
@@ -237,6 +293,7 @@ def validate(config, data_loader, model):
     loss_meter = AverageMeter()
     acc1_meter = AverageMeter()
     acc5_meter = AverageMeter()
+    acc_balanced_meter = AverageMeter()
 
     end = time.time()
     for idx, (images, target) in enumerate(data_loader):
@@ -248,7 +305,7 @@ def validate(config, data_loader, model):
 
         # measure accuracy and record loss
         loss = criterion(output, target)
-        acc1, acc5 = accuracy(output, target, topk=(1, 5))
+        acc1, acc5 = accuracy(output, target, topk=(1, min(5, output.shape[-1])))
 
         acc1 = reduce_tensor(acc1)
         acc5 = reduce_tensor(acc5)
@@ -257,6 +314,10 @@ def validate(config, data_loader, model):
         loss_meter.update(loss.item(), target.size(0))
         acc1_meter.update(acc1.item(), target.size(0))
         acc5_meter.update(acc5.item(), target.size(0))
+
+        import sklearn.metrics
+        _, accuracy_balanced, _, _ = sklearn.metrics.precision_recall_fscore_support(target.cpu(), torch.argmax(output, 1).cpu(), average='macro')
+        acc_balanced_meter.update(accuracy_balanced, target.size(0))
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -272,7 +333,7 @@ def validate(config, data_loader, model):
                 f'Acc@5 {acc5_meter.val:.3f} ({acc5_meter.avg:.3f})\t'
                 f'Mem {memory_used:.0f}MB')
     logger.info(f' * Acc@1 {acc1_meter.avg:.3f} Acc@5 {acc5_meter.avg:.3f}')
-    return acc1_meter.avg, acc5_meter.avg, loss_meter.avg
+    return acc1_meter.avg, acc5_meter.avg, loss_meter.avg, acc_balanced_meter.avg
 
 
 @torch.no_grad()
@@ -308,6 +369,7 @@ if __name__ == '__main__':
     else:
         rank = -1
         world_size = -1
+
     torch.cuda.set_device(config.LOCAL_RANK)
     torch.distributed.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
     torch.distributed.barrier()

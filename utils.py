@@ -23,10 +23,17 @@ def load_checkpoint(config, model, optimizer, lr_scheduler, logger):
             config.MODEL.RESUME, map_location='cpu', check_hash=True)
     else:
         checkpoint = torch.load(config.MODEL.RESUME, map_location='cpu')
-    msg = model.load_state_dict(checkpoint['model'], strict=False)
+
+    current_model = model.state_dict()
+    new_state_dict = {k: v if v.size() == current_model[k].size() else current_model[k] for k, v in
+                      zip(current_model.keys(), checkpoint['model'].values())
+                      }
+
+    msg = model.load_state_dict(new_state_dict, strict=False)
     logger.info(msg)
     max_accuracy = 0.0
-    if not config.EVAL_MODE and 'optimizer' in checkpoint and 'lr_scheduler' in checkpoint and 'epoch' in checkpoint:
+    if not config.EVAL_MODE and 'optimizer' in checkpoint and 'lr_scheduler' in checkpoint and 'epoch' in checkpoint \
+            and not config.TRAIN.RESUME_ONLY_MODEL:
         optimizer.load_state_dict(checkpoint['optimizer'])
         lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
         config.defrost()

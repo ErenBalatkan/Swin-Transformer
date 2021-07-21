@@ -1,0 +1,1 @@
+python get_test_preds.py --cfg configs/swin_large_patch4_window7_224.yaml --data-path /media/eren/8870443570442BEE/Data/LogMeal/iccv/archives/ --local_rank 0 --batch-size 128 --resume /media/eren/Eren1/trained_models/iccv/swin/swin_large_224_sam.pth --eval

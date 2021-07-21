@@ -48,6 +48,8 @@ _C.MODEL.TYPE = 'swin'
 _C.MODEL.NAME = 'swin_tiny_patch4_window7_224'
 # Checkpoint to resume, could be overwritten by command line argument
 _C.MODEL.RESUME = ''
+# Normally, we will perform initial evaluation whenever we resume a model, set following arg to True if you don't want.
+_C.MODEL.RESUME_SKIP_EVAL = False
 # Number of classes, overwritten in data preparation
 _C.MODEL.NUM_CLASSES = 1000
 # Dropout rate
@@ -98,6 +100,7 @@ _C.TRAIN.MIN_LR = 5e-6
 _C.TRAIN.CLIP_GRAD = 5.0
 # Auto resume from latest checkpoint
 _C.TRAIN.AUTO_RESUME = True
+_C.TRAIN.RESUME_ONLY_MODEL = False
 # Gradient accumulation steps
 # could be overwritten by command line argument
 _C.TRAIN.ACCUMULATION_STEPS = 0
@@ -116,6 +119,8 @@ _C.TRAIN.LR_SCHEDULER.DECAY_RATE = 0.1
 # Optimizer
 _C.TRAIN.OPTIMIZER = CN()
 _C.TRAIN.OPTIMIZER.NAME = 'adamw'
+# Whether to enable Sharpness aware Mimimization or not
+_C.TRAIN.OPTIMIZER.SAM = False
 # Optimizer Epsilon
 _C.TRAIN.OPTIMIZER.EPS = 1e-8
 # Optimizer Betas
@@ -156,6 +161,15 @@ _C.AUG.MIXUP_MODE = 'batch'
 _C.TEST = CN()
 # Whether to use center crop when testing
 _C.TEST.CROP = True
+
+
+# -----------------------------------------------------------------------------
+# WANDB settings
+#-----------------------------------------------------------------------------
+_C.WANDB = CN()
+_C.WANDB.PROJECT = 'None'
+_C.WANDB.NAME = 'None'
+_C.WANDB.RESUME = False
 
 # -----------------------------------------------------------------------------
 # Misc
@@ -244,5 +258,4 @@ def get_config(args):
     # This is for the "local variable" use pattern
     config = _C.clone()
     update_config(config, args)
-
     return config

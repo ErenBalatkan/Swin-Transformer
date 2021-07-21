@@ -14,9 +14,10 @@ from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.data import Mixup
 from timm.data import create_transform
 from timm.data.transforms import _pil_interp
-
 from .cached_image_folder import CachedImageFolder
 from .samplers import SubsetRandomSampler
+
+from data.logmeal_dataset import LogMealTypesDataset
 
 
 def build_loader(config):
@@ -71,8 +72,8 @@ def build_loader(config):
 
 def build_dataset(is_train, config):
     transform = build_transform(is_train, config)
+    prefix = 'train' if is_train else 'val'
     if config.DATA.DATASET == 'imagenet':
-        prefix = 'train' if is_train else 'val'
         if config.DATA.ZIP_MODE:
             ann_file = prefix + "_map.txt"
             prefix = prefix + ".zip@/"
@@ -82,8 +83,20 @@ def build_dataset(is_train, config):
             root = os.path.join(config.DATA.DATA_PATH, prefix)
             dataset = datasets.ImageFolder(root, transform=transform)
         nb_classes = 1000
+    elif config.DATA.DATASET == "logmeal_types":
+        dataset = LogMealTypesDataset(config.DATA.DATA_PATH, "annotations/split_types", mode=prefix, transforms=transform)
+        nb_classes = dataset.num_classes
+    elif config.DATA.DATASET == "logmeal_food":
+        dataset = LogMealTypesDataset(config.DATA.DATA_PATH, "annotations/split_food", mode=prefix, transforms=transform)
+        nb_classes = dataset.num_classes
+    elif config.DATA.DATASET == "logmeal_ingredients":
+        dataset = LogMealTypesDataset(config.DATA.DATA_PATH, "annotations/split_ingredients", mode=prefix, transforms=transform)
+        nb_classes = dataset.num_classes
+    elif config.DATA.DATASET == "logmeal_drinks":
+        dataset = LogMealTypesDataset(config.DATA.DATA_PATH, "annotations/split_drinks", mode=prefix, transforms=transform)
+        nb_classes = dataset.num_classes
     else:
-        raise NotImplementedError("We only support ImageNet Now.")
+        raise NotImplementedError(f"Dataset not implemented: {config.DATA.DATASET}")
 
     return dataset, nb_classes
 
@@ -100,7 +113,7 @@ def build_transform(is_train, config):
             re_prob=config.AUG.REPROB,
             re_mode=config.AUG.REMODE,
             re_count=config.AUG.RECOUNT,
-            interpolation=config.DATA.INTERPOLATION,
+            interpolation=config.DATA.INTERPOLATION
         )
         if not resize_im:
             # replace RandomResizedCropAndInterpolation with

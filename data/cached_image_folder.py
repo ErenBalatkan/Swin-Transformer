@@ -176,6 +176,7 @@ IMG_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif']
 
 
 def pil_loader(path):
+    converted = False
     # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
     if isinstance(path, bytes):
         img = Image.open(io.BytesIO(path))
@@ -185,7 +186,13 @@ def pil_loader(path):
     else:
         with open(path, 'rb') as f:
             img = Image.open(f)
-    return img.convert('RGB')
+            img = img.convert('RGB')
+            converted = True
+
+    if not converted:
+        img = img.convert('RGB')
+
+    return img
 
 
 def accimage_loader(path):

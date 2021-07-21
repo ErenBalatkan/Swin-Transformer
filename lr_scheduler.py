@@ -15,22 +15,21 @@ def build_scheduler(config, optimizer, n_iter_per_epoch):
     num_steps = int(config.TRAIN.EPOCHS * n_iter_per_epoch)
     warmup_steps = int(config.TRAIN.WARMUP_EPOCHS * n_iter_per_epoch)
     decay_steps = int(config.TRAIN.LR_SCHEDULER.DECAY_EPOCHS * n_iter_per_epoch)
-
     lr_scheduler = None
     if config.TRAIN.LR_SCHEDULER.NAME == 'cosine':
         lr_scheduler = CosineLRScheduler(
-            optimizer,
-            t_initial=num_steps,
+            optimizer if not config.TRAIN.OPTIMIZER.SAM else optimizer.base_optimizer,
+            t_initial=int(num_steps / 4),
             t_mul=1.,
             lr_min=config.TRAIN.MIN_LR,
             warmup_lr_init=config.TRAIN.WARMUP_LR,
             warmup_t=warmup_steps,
-            cycle_limit=1,
+            cycle_limit=4,
             t_in_epochs=False,
         )
     elif config.TRAIN.LR_SCHEDULER.NAME == 'linear':
         lr_scheduler = LinearLRScheduler(
-            optimizer,
+            optimizer if not config.TRAIN.OPTIMIZER.SAM else optimizer.base_optimizer,
             t_initial=num_steps,
             lr_min_rate=0.01,
             warmup_lr_init=config.TRAIN.WARMUP_LR,
@@ -39,7 +38,7 @@ def build_scheduler(config, optimizer, n_iter_per_epoch):
         )
     elif config.TRAIN.LR_SCHEDULER.NAME == 'step':
         lr_scheduler = StepLRScheduler(
-            optimizer,
+            optimizer if not config.TRAIN.OPTIMIZER.SAM else optimizer.base_optimizer,
             decay_t=decay_steps,
             decay_rate=config.TRAIN.LR_SCHEDULER.DECAY_RATE,
             warmup_lr_init=config.TRAIN.WARMUP_LR,
