@@ -7,5 +7,5 @@ clearml-task \
 --folder Swin-Transformer \
 --requirements requirements.txt \
 --script clearml_experiment_runner.py \
---queue eren_pc
+--queue ub_70
 
