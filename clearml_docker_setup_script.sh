@@ -9,6 +9,10 @@ pip install clearml
 pip uninstall -y pycocotools
 pip install mmpycocotools
 pip install yacs
-
+mkdir datasets
 wandb login 126df13111573362ac4698f1eacd2e1b31e50a45
+
 clearml-data get --id ac705e35976947d3ace2283fbb11a87b
+mkdir datasets/iccv
+mkdir datasets/iccv/val
+ln -s  datasets/iccv/val /clearml_agent_cache/storage_manager/datasets/ds_ac705e35976947d3ace2283fbb11a87b

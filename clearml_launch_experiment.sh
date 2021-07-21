@@ -6,6 +6,6 @@ clearml-task \
 --docker_args="--shm-size=16g" \
 --folder Swin-Transformer \
 --requirements requirements.txt \
---script run_experiment.py \
---queue default
+--script clearml_experiment_runner.py \
+--queue eren_pc
 
