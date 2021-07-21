@@ -139,3 +139,5 @@ output/
 *.ts
 
 *.csv
+
+*.bigfile
