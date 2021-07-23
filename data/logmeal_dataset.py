@@ -19,13 +19,14 @@ def read_single_column_txt(path):
 
 
 class LogMealTypesDataset(Dataset):
-    def __init__(self, dataset_path, annotation_relative_path="annotations/split_types", mode="train", transforms=None):
+    def __init__(self, dataset_path, annotation_relative_path="annotations/split_types", mode="train", transforms=None, return_id=False):
         self.dataset_path = dataset_path
         print(dataset_path)
         self.annotation_path = os.path.join(dataset_path, annotation_relative_path)
         print("ann", self.annotation_path)
         self.mode = mode
         self.transforms = transforms
+        self.return_id = return_id
 
         classes = read_single_column_txt(os.path.join(self.annotation_path, "classes.txt"))
         print(classes)
@@ -42,11 +43,16 @@ class LogMealTypesDataset(Dataset):
         return self.len
 
     def __getitem__(self, item):
-        img_path = os.path.join(self.dataset_path, self.img_paths[item])
+        img_id = self.img_paths[item]
+        img_path = os.path.join(self.dataset_path, img_id)
         img = pil_loader(img_path)
 
         if self.transforms is not None:
             img = self.transforms(img)
 
         img_label = int(self.img_labels[item])
-        return img, img_label
+
+        if not self.return_id:
+            return img, img_label
+        else:
+            return img, img_label, img_id

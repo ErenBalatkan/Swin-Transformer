@@ -170,6 +170,7 @@ _C.WANDB = CN()
 _C.WANDB.PROJECT = 'None'
 _C.WANDB.NAME = 'None'
 _C.WANDB.RESUME = False
+_C.WANDB.RESUMEID = None
 
 # -----------------------------------------------------------------------------
 # Misc

@@ -76,7 +76,7 @@ def parse_option():
 
 def main(config):
     if dist.get_rank() == 0:
-        wandb.init(project=config.WANDB.PROJECT, name=config.TAG, resume=config.WANDB.RESUME)
+        wandb.init(project=config.WANDB.PROJECT, name=config.TAG, resume=config.WANDB.RESUME, id=config.WANDB.RESUMEID)
 
     dataset_train, dataset_val, data_loader_train, data_loader_val, mixup_fn = build_loader(config)
 
