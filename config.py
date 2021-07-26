@@ -192,8 +192,6 @@ _C.SEED = 0
 _C.EVAL_MODE = False
 # Test throughput only, overwritten by command line argument
 _C.THROUGHPUT_MODE = False
-# local rank for DistributedDataParallel, given by command line argument
-_C.LOCAL_RANK = 0
 
 
 def _update_config_from_file(config, cfg_file):
@@ -243,9 +241,6 @@ def update_config(config, args):
         config.EVAL_MODE = True
     if args.throughput:
         config.THROUGHPUT_MODE = True
-
-    # set local rank for distributed training
-    config.LOCAL_RANK = args.local_rank
 
     # output folder
     config.OUTPUT = os.path.join(config.OUTPUT, config.MODEL.NAME, config.TAG)

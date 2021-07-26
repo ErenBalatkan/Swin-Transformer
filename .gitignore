@@ -141,3 +141,5 @@ output/
 *.csv
 
 *.bigfile
+
+*.pth

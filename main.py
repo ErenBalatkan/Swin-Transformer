@@ -64,9 +64,6 @@ def parse_option():
     parser.add_argument('--eval', action='store_true', help='Perform evaluation only')
     parser.add_argument('--throughput', action='store_true', help='Test throughput only')
 
-    # distributed training
-    parser.add_argument("--local_rank", type=int, required=True, help='local rank for DistributedDataParallel')
-
     args, unparsed = parser.parse_known_args()
 
     config = get_config(args)
@@ -91,7 +88,7 @@ def main(config):
             model, optimizer.base_optimizer = amp.initialize(model, optimizer.base_optimizer, opt_level=config.AMP_OPT_LEVEL)
         else:
             model, optimizer = amp.initialize(model, optimizer, opt_level=config.AMP_OPT_LEVEL)
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[config.LOCAL_RANK], broadcast_buffers=False)
+    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[dist.get_rank()], broadcast_buffers=False)
     model_without_ddp = model.module
 
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -370,8 +367,8 @@ if __name__ == '__main__':
         rank = -1
         world_size = -1
 
-    torch.cuda.set_device(config.LOCAL_RANK)
-    torch.distributed.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
+    # torch.cuda.set_device(dist.get_rank())
+    torch.distributed.init_process_group(backend='nccl')
     torch.distributed.barrier()
 
     seed = config.SEED + dist.get_rank()

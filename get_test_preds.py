@@ -202,15 +202,14 @@ def test(model, transform, config, enable_wandb, mode):
         os.remove(csv_file_path)
     df.to_csv(csv_file_path, index=False)
 
-    task = clearml.Task.init(project_name='test', task_name='artifacts example')
-    task.upload_artifact('local file', artifact_object=os.path.join(numpy_preds_file_path))
-    task.upload_artifact('local file2', artifact_object=os.path.join(csv_file_path))
-
 
 def load_model(config, model):
     if config.MODEL.RESUME != "":
         ckpt = torch.load(config.MODEL.RESUME, map_location="cpu")
         model.load_state_dict(ckpt["model"], strict=False)
+
+        task = clearml.Task.init()
+        task.upload_artifact('local file', "model_ckpt.pth")
     return model
 
 
